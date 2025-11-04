@@ -45,7 +45,7 @@ def analyze_video(video_path):
     # 비디오의 전체 프레임 수를 미리 얻어옴
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    #초기 프레임 흑백 처리
+    #초기 프레임 읽어오기
     ret, frame1 = cap.read()    
     if not ret:
         print("[ERROR] 카메라를 열 수 없습니다. 분석 프로그램을 정지합니다.")
@@ -67,7 +67,7 @@ def analyze_video(video_path):
         if frame_count % 10 != 0:
             continue
 
-        #이전 10 프레임과 비교
+        #현재 프레임 흑백 처리 및 노이즈 처리 후 이전 10 프레임과 비교
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         frame_gray = cv2.GaussianBlur(frame_gray, (21, 21), 0)
 
