@@ -2,6 +2,8 @@ import os
 import time
 import shutil
 import cv2
+import numpy as np
+import sys
 from ultralytics import YOLO
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -43,26 +45,51 @@ def analyze_video(video_path):
     # 비디오의 전체 프레임 수를 미리 얻어옴
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
+    #초기 프레임 흑백 처리
+    ret, frame1 = cap.read()    
+    if not ret:
+        print("[ERROR] 카메라를 열 수 없습니다. 분석 프로그램을 정지합니다.")
+        sys.exit(1)
+
     while True:
         ret, frame = cap.read()
         if not ret:
             break
         frame_count += 1
         
+
+        #이전 10 프레임 흑백 처리 후 노이즈 처리
+        frame1_gray = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)
+        frame1_gray = cv2.GaussianBlur(frame1_gray, (21, 21), 0)
+
+
         # 10프레임마다 1번씩 추론 후 위험 판단
         if frame_count % 10 != 0:
             continue
 
-        #프레임을 640*360으로 변환하기
-        resized_frame = cv2.resize(frame, (640, 360))
-        
-        results = model(resized_frame)
-        if is_dangerous(results):
-            is_danger = True
-            danger_frame_number = frame_count  # 위험이 감지된 프레임 번호 저장
-            break  # 위험이 감지되면 즉시 분석 중단
+        #이전 10 프레임과 비교
+        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        frame_gray = cv2.GaussianBlur(frame_gray, (21, 21), 0)
 
-    # 위험 감지 시, 썸네일 저장
+        frame_diff = cv2.absdiff(frame1_gray, frame_gray)
+        thresh = cv2.threshold(frame_diff, 25, 255, cv2.THRESH_BINARY)[1]
+        motion_level = np.sum(thresh) / 255
+        motion_detected = motion_level > 2000 #전체 2000픽셀 이상 차이 날 경우 움직임이 있다고 판단.
+
+        frame1 = frame.copy()
+        if motion_detected == True:
+            print(f'이전 프레임과 비교 시, 움직임이 있다고 판단되어 현재 프레임 분석을 실시함. 현재 프레임 :{frame_count}')
+
+        #프레임을 640*640으로 변환하기
+            resized_frame = cv2.resize(frame, (640, 640))
+        
+            results = model(resized_frame)
+            if is_dangerous(results):
+                is_danger = True
+                danger_frame_number = frame_count  # 위험이 감지된 프레임 번호 저장
+                break  # 위험이 감지되면 즉시 분석 중단
+
+        # 위험 감지 시, 썸네일 저장
     if is_danger:
         # 썸네일로 사용할 프레임 번호 결정
         target_frame_number = danger_frame_number + 10
