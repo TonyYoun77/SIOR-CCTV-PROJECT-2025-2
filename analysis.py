@@ -13,9 +13,11 @@ input_folder = 'saved_videos'
 danger_folder = 'danger_videos'
 normal_folder = 'normal_videos'
 thumbnail_folder = 'thumbnails'
+cover_folder = 'cover'
 os.makedirs(danger_folder, exist_ok=True)
 os.makedirs(normal_folder, exist_ok=True)
 os.makedirs(thumbnail_folder, exist_ok=True)
+os.makedirs(cover_folder, exist_ok=True)
 
 # --- 위험 클래스 설정 ---
 DANGER_CLASSES = ['fall','fight','fire','weapons']  # 이 모델 내 위험한 상황에 해당하는 클래스
