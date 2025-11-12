@@ -20,8 +20,7 @@ thumbnail_folder = 'thumbnails' # 썸네일 저장 폴더
 os.makedirs(tmp_video_folder, exist_ok=True)
 os.makedirs(danger_folder, exist_ok=True)
 os.makedirs(save_video_folder, exist_ok=True)
-os.makedirs(thumbnail_folder, exist_ok=True) # exist_ok 오타 수정 완료
-
+os.makedirs(thumbnail_folder, exist_ok=True) 
 
 # --- 녹화 설정 ---
 is_record = False
@@ -45,9 +44,8 @@ def generate_filename():
     now = datetime.datetime.now()
     return now.strftime("CCTV_%Y-%m-%d_%H-%M-%S.avi")
 
-# --- 썸네일 생성 함수 (수정 완료) ---
+# --- 썸네일 생성 함수 ---
 def make_the_thumbnail(thumbnail_name, frame):
-    """주어진 프레임을 썸네일로 저장합니다."""
     thumbnail_filename = f'{thumbnail_name}.jpg'
     thumbnail_path = os.path.join(thumbnail_folder, thumbnail_filename)
     cv2.imwrite(thumbnail_path, frame)
@@ -77,10 +75,9 @@ def is_screen_blocked(frame, uniformity_threshold=0.9, color_diff_threshold=15):
     if uniform_ratio > uniformity_threshold:
         print(f"화면 가려짐 감지! (균일도: {uniform_ratio:.2f})")
         return True
-    # else:
-    #     print(f"정상 화면 (균일도: {uniform_ratio:.2f})")
-    #     return False
-
+    else:
+        return False
+    
 # --- 녹화 시작 ---
 def start_recording(frame_shape, fourcc):
     """녹화 파일명을 생성하고 VideoWriter를 초기화합니다."""
@@ -92,7 +89,7 @@ def start_recording(frame_shape, fourcc):
     video = cv2.VideoWriter(video_filename, fourcc, 20, (frame_shape[1], frame_shape[0]))
     print(f"[REC] recording start: {filename}")
 
-# --- 녹화 종료 (파일 이동 로직 제거) ---
+# --- 녹화 종료 ---
 def stop_recording():
     """VideoWriter를 종료하고 리소스를 해제합니다. 파일 이동은 메인 루프에서 처리됩니다."""
     global video
@@ -100,11 +97,9 @@ def stop_recording():
         print("[REC] recording end")
         video.release()
         video = None
-        # 파일 이동은 메인 루프에서 처리합니다.
-
+        
 # --- 카메라 초기화 및 설정 ---
 fourcc = cv2.VideoWriter_fourcc(*'XVID')
-# 폰트 로드 (시스템에 SCDream6.otf 파일이 있어야 합니다)
 try:
     font = ImageFont.truetype('SCDream6.otf', 20)
 except IOError:
@@ -119,7 +114,7 @@ if frame1 is None:
     picam2.stop()
     sys.exit(1)
 
-# --- 초기 가려짐 체크 및 썸네일 저장 로직 (수정 완료) ---
+# --- 초기 가려짐 감지 및 썸네일 저장 로직  ---
 if is_screen_blocked(frame1):
     blocked = True
     initial_thumbnail_name = 'INITIAL_BLOCKED_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -139,9 +134,8 @@ while True:
         if frame2 is None:
             break
 
-        # --- 1. 화면 가려짐 상시 체크 및 플래그 업데이트 ---
         if is_screen_blocked(frame2):
-            blocked = True # 녹화 중 언제라도 가려짐이 감지되면 True로 설정
+            blocked = True 
             
         # --- 2. 모션 감지 로직 ---
         frame2_gray = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY)
@@ -172,8 +166,8 @@ while True:
             video.write(frame2)
             cv2.circle(frame2, (1260, 15), 5, (0, 0, 255), -1) # 녹화 중임을 표시하는 빨간 점
 
-            # 녹화 지속 시간 초과 시 종료
-            if time.time() - record_start_time > record_duration:
+            # 녹화 지속 시간 초과 혹은 가려짐 발생 시 종료
+            if time.time() - record_start_time > record_duration or blocked == True:
                 stop_recording()
                 
                 # 파일 이동 처리 (가려짐 여부에 따라 폴더 지정)
