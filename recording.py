@@ -14,9 +14,12 @@ from libcamera import Transform
 save_video_folder = 'saved_videos'
 tmp_video_folder = 'temporary_saved'
 danger_folder = 'danger_videos'
+thumbnail_folder = 'thumbnails'
 os.makedirs(tmp_video_folder, exist_ok=True)
-os.makedirs(danger_folder, exist_ok = True)
+os.makedirs(danger_folder, exist_ok=True)
 os.makedirs(save_video_folder, exist_ok=True)
+os.makedirs(thumbnail_folder, exsit_ok=True)
+
 
 # --- 녹화 설정 ---
 is_record = False
@@ -70,6 +73,15 @@ def is_screen_blocked(frame, uniformity_threshold=0.9, color_diff_threshold=15):
     else:
         return False
 
+def make_the_thumbnail(video_file_name, frame):
+        # 썸네일 저장을 위해 타겟 프레임 위치로 이동
+        if ret:
+            thumbnail_filename = f'{thumbnail_name}.jpg'
+            thumbnail_path = os.path.join(thumbnail_folder, thumbnail_filename)
+            cv2.imwrite(thumbnail_path, frame)
+            print(f"[정보] 프레임({target_frame_number})을 썸네일로 저장했습니다.")
+        else:
+            print(f"[경고] 프레임({target_frame_number})을 읽어오는 데 실패했습니다.")
 
 # --- 녹화 종료 ---
 def stop_recording():
@@ -84,6 +96,9 @@ def stop_recording():
 fourcc = cv2.VideoWriter_fourcc(*'XVID')
 font = ImageFont.truetype('SCDream6.otf', 20)
 
+#가려진 것에 대한 함수
+blocked = False #초기화 안 하면 계속 가려졌다고 판단함.
+
 #Picamera2에서 첫 번째 프레임 가져오기
 frame1 = picam2.capture_array()
 frame1 = cv2.cvtColor(frame1, cv2.COLOR_RGB2BGR) # RGB를 BGR로 변환
@@ -94,6 +109,8 @@ if frame1 is None:
 frame1_gray = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)
 frame1_gray = cv2.GaussianBlur(frame1_gray, (21, 21), 0)
 
+#가려져 있다면 해당 프레임이 가려졌다고 바꾸고 썸네일 저장하기
+if 
 print("[REC] start recording (press q to stop)")
 
 while True:
@@ -132,6 +149,10 @@ while True:
             cv2.circle(frame2, (1260, 15), 5, (0, 0, 255), -1)
             if time.time() - record_start_time > record_duration:
                 stop_recording()
+                if blocked == True:
+                    shutil.move(video_filename, save_video_folder)
+                else:
+                    shutil.move(video_filename, dnager_video_folder)
                 is_record = False
 
         cv2.imshow("output", frame2)
