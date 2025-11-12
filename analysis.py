@@ -13,11 +13,9 @@ input_folder = 'saved_videos'
 danger_folder = 'danger_videos'
 normal_folder = 'normal_videos'
 thumbnail_folder = 'thumbnails'
-cover_folder = 'cover'
 os.makedirs(danger_folder, exist_ok=True)
 os.makedirs(normal_folder, exist_ok=True)
 os.makedirs(thumbnail_folder, exist_ok=True)
-os.makedirs(cover_folder, exist_ok=True)
 
 # --- 위험 클래스 설정 ---
 DANGER_CLASSES = ['fall','fight','fire','weapons']  # 이 모델 내 위험한 상황에 해당하는 클래스
@@ -25,30 +23,6 @@ DANGER_CLASSES = ['fall','fight','fire','weapons']  # 이 모델 내 위험한 �
 # --- YOLO 모델 로드 ---
 model = YOLO('best.pt') 
 
-
-# --- 카메라 가려짐 판단 함수 ---
-def is_screen_blocked(frame, uniformity_threshold=0.9, color_diff_threshold=15):
-    """
-    화면이 가려졌는지 RGB 기준으로 판단 (균일도만 사용)
-    - uniformity_threshold: 화면의 비슷한 픽셀 비율 (0~1)
-    - color_diff_threshold: 픽셀과 평균색의 RGB 거리 기준 (0~255)
-    """
-
-    # 평균 색 구하기
-    mean_color = np.mean(frame, axis=(0, 1))  # [B, G, R] 이런식으로 출력
-
-    # 각 픽셀이 평균색에서 얼마나 다른지 계산
-    diff = np.sqrt(np.sum((frame - mean_color) ** 2, axis=2))
-
-    # 평균색과 거의 같은 픽셀 비율 계산
-    similar_pixels = np.sum(diff < color_diff_threshold)
-    uniform_ratio = similar_pixels / frame.size * 3  # 픽셀 기준 비율
-
-    if uniform_ratio > uniformity_threshold:
-        print("화면 가려짐 감지!")
-        return True
-    else:
-        return False
 
 
 # --- 위험 판단 함수 ---
