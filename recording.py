@@ -14,7 +14,7 @@ from libcamera import Transform
 SAVE_VIDEO_FOLDER = 'saved_videos' # 일반 영상 저장 폴더
 TMP_VIDEO_FOLDER = 'temporary_saved' # 임시 저장 폴더
 DANGER_FOLDER = 'danger_videos' # 화면 가려짐 감지 시 저장되는 폴더
-THUMBNAIL_FOLDER = 'thumbnails' # 썸네일 저장 폴더
+THUMBNAIL_FOLDER = 'thumbnails/covered' # 썸네일 저장 폴더
 
 # 폴더 생성 (exist_ok=True로 안전하게)
 os.makedirs(TMP_VIDEO_FOLDER, exist_ok=True)
@@ -53,12 +53,10 @@ except IOError:
 # --- 3. 함수 정의 ---
 
 def generate_filename():
-    """현재 시간을 기반으로 AVI 파일명을 생성합니다."""
     now = datetime.datetime.now()
     return now.strftime("CCTV_%Y-%m-%d_%H-%M-%S.avi")
 
 def make_the_thumbnail(thumbnail_name, frame):
-    """지정된 이름으로 썸네일을 저장합니다."""
     thumbnail_filename = f'{thumbnail_name}.jpg'
     thumbnail_path = os.path.join(THUMBNAIL_FOLDER, thumbnail_filename)
     cv2.imwrite(thumbnail_path, frame)
@@ -94,8 +92,8 @@ def start_recording(frame_shape):
     filename = generate_filename()
     video_filename = os.path.join(TMP_VIDEO_FOLDER, filename)
     
-    # 초당 20프레임, 1280x720 해상도로 설정
-    video_writer = cv2.VideoWriter(video_filename, FOURCC, 20, (frame_shape[1], frame_shape[0]))
+    # 초당 30프레임, 1280x720 해상도로 설정
+    video_writer = cv2.VideoWriter(video_filename, FOURCC, 30, (frame_shape[1], frame_shape[0]))
     
     IS_RECORD = True
     RECORD_START_TIME = time.time()
@@ -113,10 +111,10 @@ def stop_recording_and_save():
         # 파일 이동 처리 (가려짐 여부에 따라 폴더 지정)
         if blocked:
             shutil.move(video_filename, DANGER_FOLDER)
-            print(f"[SAVE] '위험' 영상으로 분류되어 {DANGER_FOLDER}에 저장됨: {video_filename}")
+            print(f"'위험' 영상으로 분류되어 {DANGER_FOLDER}에 저장됨: {video_filename}")
         else:
             shutil.move(video_filename, SAVE_VIDEO_FOLDER)
-            print(f"[SAVE] '일반' 영상으로 분류되어 {SAVE_VIDEO_FOLDER}에 저장됨: {video_filename}")
+            print(f"'일반' 영상으로 분류되어 {SAVE_VIDEO_FOLDER}에 저장됨: {video_filename}")
 
         IS_RECORD = False
         video_filename = None
@@ -154,7 +152,7 @@ while True:
         if frame2 is None:
             break
 
-        # --- 5-1. 화면 가려짐 감지 로직 (실시간 업데이트) ---
+        # --- 5-1. 화면 가려짐 감지 로직 ---
         newly_blocked = is_screen_blocked(frame2)
         if newly_blocked != blocked:
             print(f"[BLOCKED] 상태 변경: {'감지됨' if newly_blocked else '해제됨'}")
@@ -166,7 +164,7 @@ while True:
         
         motion_detected = False
         
-        # 화면이 가려지지 않았을 때만 모션 감지 수행! (중요 수정 사항)
+        # 화면이 가려지지 않았을 때만 모션 감지 수행
         if not blocked:
             frame_diff = cv2.absdiff(frame1_gray, frame2_gray)
             thresh = cv2.threshold(frame_diff, 25, 255, cv2.THRESH_BINARY)[1]
