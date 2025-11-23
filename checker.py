@@ -80,7 +80,12 @@ class ThumbnailHandler(FileSystemEventHandler):
             
             # 이메일 내용 설정
             subject = 'CCTV 위험 상황 감지 알림'
-            body = f'새로운 위험 상황이 감지되었습니다. 썸네일 파일을 확인하세요: {os.path.basename(event.src_path)}'
+            if src_path.startswith('BLOCKED_DETECTED_'):
+                body = f'녹화 중 화면이 가려졌거나 카메라가 장애물에 의해 가려졌습니다. 썸네일 파일을 확인하세요: {os.path.basename(event.src_path)}'
+            elif src_path.startswith('GAS_DETECTED_'):
+                body = f'유독성 연기가 감지되었습니다. 썸네일 파일을 확인하세요: {os.path.basename(event.src_path)}'
+            else:
+                body = f'새로운 위험 상황이 감지되었습니다. 썸네일 파일을 확인하세요: {os.path.basename(event.src_path)}'
             
             # 이메일 발송 함수 호출
             send_email_with_attachment(RECIPIENT_EMAIL, subject, body, event.src_path)
