@@ -215,14 +215,24 @@ while True:
 
         # ---  센서 통합 로직 (가려짐, 가스, 조도) ---
         
-        # A. 화면 가려짐 감지 -> 가려짐이 계속 되면 가려짐이 해제될 때까지 더 이상 녹화를 진행하지 않음.
+        # A. 화면 가려짐 감지
         newly_blocked = is_screen_blocked(frame2)
-        if blocked == True and newly_blocked == False:
-            frame1_gray = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY) 
-            frame1_gray = cv2.GaussianBlur(frame1_gray, (21, 21), 0)
-            print("[INFO] 가려짐 해제. 모션 감지 기준 프레임을 리셋합니다.")
+        
+        # 가려짐 상태 변화 감지
         if newly_blocked != blocked:
             print(f"[BLOCKED] 상태 변경: {'감지됨' if newly_blocked else '해제됨'}")
+            
+            if newly_blocked:
+                thumbnail_name = 'BLOCKED_DETECTED_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                make_the_thumbnail(thumbnail_name, frame2)
+            # ----------------------------------------------------
+            
+            # 가려짐 해제 시 모션 감지 기준 프레임 리셋
+            if blocked == True and newly_blocked == False:
+                frame1_gray = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY) 
+                frame1_gray = cv2.GaussianBlur(frame1_gray, (21, 21), 0)
+                print("[INFO] 가려짐 해제. 모션 감지 기준 프레임을 리셋합니다.")
+                
         blocked = newly_blocked
         
         # B. 가스 감지 -> 가스가 감지 되면 썸네일 파일을 만들어서 썸네일 파일로 전송
