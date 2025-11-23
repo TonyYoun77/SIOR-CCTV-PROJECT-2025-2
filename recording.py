@@ -15,10 +15,10 @@ from picamera2 import Picamera2
 from libcamera import Transform
 
 # --- 1. 경로 설정 ---
-SAVE_VIDEO_FOLDER = 'saved_videos'    
-TMP_VIDEO_FOLDER = 'temporary_saved' 
-DANGER_FOLDER = 'danger_videos'      
-THUMBNAIL_FOLDER = 'thumbnails'      
+SAVE_VIDEO_FOLDER = 'saved_videos'      
+TMP_VIDEO_FOLDER = 'temporary_saved'  
+DANGER_FOLDER = 'danger_videos'       
+THUMBNAIL_FOLDER = 'thumbnails'       
 
 os.makedirs(TMP_VIDEO_FOLDER, exist_ok=True)
 os.makedirs(DANGER_FOLDER, exist_ok=True)
@@ -27,9 +27,9 @@ os.makedirs(THUMBNAIL_FOLDER, exist_ok=True)
 
 # --- 2. GPIO 핀 정의 및 초기화 ---
 
-MQ2_PIN = 23          # MQ-2 가스 센서 디지털 출력 핀
+MQ2_PIN = 23      # MQ-2 가스 센서 디지털 출력 핀
 LIGHT_SENSOR_PIN = 24  # 조도 센서 디지털 출력 핀
-IR_CUT_PIN = 17       # IR-Cut 필터 제어 출력 핀
+IR_CUT_PIN = 17      # IR-Cut 필터 제어 출력 핀
 
 try:
     # MQ-2: HIGH가 감지(True), LOW가 비감지(False)
@@ -39,7 +39,7 @@ try:
     LIGHT_SENSOR = DigitalInputDevice(LIGHT_SENSOR_PIN, pull_up=True) 
     
     # IR-Cut: HIGH가 ON(주간), LOW가 OFF(야간)
-    IR_CUT_CONTROL = DigitalOutputDevice(IR_CUT_PIN, initial_value=True) # 초기값 False: 주간 모드 OFF
+    IR_CUT_CONTROL = DigitalOutputDevice(IR_CUT_PIN, initial_value=True) # 초기값 True: 주간 모드 ON
     
 except Exception as e:
     print(f"[FATAL ERROR] GPIO Zero 초기화 실패: {e}")
@@ -185,8 +185,9 @@ def stop_recording_and_save():
 
         IS_RECORD = False
         video_filename = None
-        # 위험 감지 플래그 리셋
-        GAS_DETECTED = False 
+        # 위험 감지 플래그 리셋 (단, 현재 blocked 상태는 유지)
+        if not blocked:
+            GAS_DETECTED = False 
 
 # --- 5. 초기화 및 메인 루프 준비 ---
 frame1_array = PICAM2.capture_array()
@@ -232,22 +233,28 @@ while True:
         if newly_blocked != blocked:
             print(f"[BLOCKED] 상태 변경: {'감지됨' if newly_blocked else '해제됨'}")
             
-            # 가려짐이 새로 감지되었을 때 썸네일 생성
+            # 1. 가려짐이 새로 감지되었을 때 녹화 즉시 중단 및 썸네일 생성
             if newly_blocked:
+                # 현재 녹화 중이었다면 즉시 중단 및 저장 (위험 영상으로 분류됨)
+                if IS_RECORD:
+                    stop_recording_and_save() 
+                
                 thumbnail_name = 'BLOCKED_DETECTED_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 make_the_thumbnail(thumbnail_name, frame2)
             
-            # 가려짐 해제 시 모션 감지 기준 프레임 리셋
-            if blocked == True and newly_blocked == False:
-                frame1_gray = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY) 
+            # 2. 가려짐 해제 시 모션 감지 기준 프레임 리셋 (새로운 모션 감지를 위해)
+            elif blocked == True and newly_blocked == False:
+                frame1_gray = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY)
                 frame1_gray = cv2.GaussianBlur(frame1_gray, (21, 21), 0)
                 print("[INFO] 가려짐 해제. 모션 감지 기준 프레임을 리셋합니다.")
                 
+        # 현재 가려짐 상태 업데이트
         blocked = newly_blocked
         
         # B. 가스 감지
         newly_gas_detected = check_mq2_sensor()
         if newly_gas_detected != GAS_DETECTED:
+            # 가스 감지가 새로 시작될 때만 썸네일 생성 
             if newly_gas_detected:
                 thumbnail_name = 'GAS_DETECTED_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 make_the_thumbnail(thumbnail_name, frame2)
@@ -263,6 +270,7 @@ while True:
         frame2_gray = cv2.GaussianBlur(frame2_gray, (21, 21), 0)
         motion_detected = False
         
+        # 화면이 가려지지 않았을 때만 모션 감지 수행
         if not blocked:
             frame_diff = cv2.absdiff(frame1_gray, frame2_gray)
             thresh = cv2.threshold(frame_diff, 25, 255, cv2.THRESH_BINARY)[1]
@@ -295,8 +303,8 @@ while True:
 
         # --- 6-4. 녹화 시작/진행/종료 로직 ---
         
-        # 모션, 가스, 혹은 가려짐 발생 시 녹화 시작
-        if (motion_detected or GAS_DETECTED or blocked) and not IS_RECORD:
+        # (1) 녹화 시작 조건: 모션 감지 또는 가스 감지 발생 시 AND 화면이 가려지지 않았을 때
+        if (motion_detected or GAS_DETECTED) and not IS_RECORD and not blocked:
             start_recording(frame2.shape)
 
         if IS_RECORD:
@@ -305,8 +313,9 @@ while True:
             # 녹화 중임을 나타내는 빨간 점 표시 (우측 상단)
             cv2.circle(frame2, (1260, 15), 5, (0, 0, 255), -1) 
 
-            # 녹화 종료 조건: 시간 초과(15초), 화면 가려짐, 또는 가스 감지
-            if time.time() - RECORD_START_TIME > RECORD_DURATION or blocked or GAS_DETECTED:
+            # (2) 녹화 종료 조건: 시간 초과(15초)
+            # 화면 가려짐은 6-1에서 이미 처리됨.
+            if time.time() - RECORD_START_TIME > RECORD_DURATION:
                 stop_recording_and_save() 
 
         # --- 6-5. 화면 출력 및 다음 루프 준비 ---
