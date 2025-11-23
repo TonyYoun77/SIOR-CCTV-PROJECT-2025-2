@@ -6,15 +6,16 @@ from PIL import ImageFont, ImageDraw, Image
 import sys
 import shutil
 import os
-from picamera2 import Picamera2, Preview
+from picamera2 import Picamera2
 from libcamera import Transform
 
 # --- 1. 경로 설정 ---
-SAVE_VIDEO_FOLDER = 'saved_videos'
-TMP_VIDEO_FOLDER = 'temporary_saved'
-DANGER_FOLDER = 'danger_videos'
-THUMBNAIL_FOLDER = 'thumbnails'
+SAVE_VIDEO_FOLDER = 'saved_videos'    # 일반 영상 저장 폴더
+TMP_VIDEO_FOLDER = 'temporary_saved' # 임시 저장 폴더
+DANGER_FOLDER = 'danger_videos'      # 화면 가려짐 감지 시 저장되는 폴더
+THUMBNAIL_FOLDER = 'thumbnails'      # 썸네일 저장 폴더
 
+# 폴더 생성 (exist_ok=True로 안전하게)
 os.makedirs(TMP_VIDEO_FOLDER, exist_ok=True)
 os.makedirs(DANGER_FOLDER, exist_ok=True)
 os.makedirs(SAVE_VIDEO_FOLDER, exist_ok=True)
@@ -23,21 +24,26 @@ os.makedirs(THUMBNAIL_FOLDER, exist_ok=True)
 # --- 2. 녹화/감지 설정 ---
 IS_RECORD = False
 RECORD_START_TIME = 0
-RECORD_DURATION = 15
-MOTION_THRESHOLD = 2000
+RECORD_DURATION = 15 # 녹화 지속 시간 (초)
+MOTION_THRESHOLD = 2000 # 모션 감지 임계값
 
 video_writer = None
 video_filename = None
-blocked = False
+blocked = False # 화면 가려짐 플래그
 
+# Picamera2 설정
 PICAM2 = Picamera2()
+# 해상도 설정 및 화면 뒤집기 (H: 1280, W: 720)
 CONFIG = PICAM2.create_video_configuration(main={"size": (1280, 720)}, transform=Transform(hflip=True, vflip=True))
 PICAM2.configure(CONFIG)
 PICAM2.start()
 
+# VideoWriter 설정
 FOURCC = cv2.VideoWriter_fourcc(*'XVID')
 
+# 폰트 설정
 try:
+    # 사용자 환경에 맞는 폰트 경로로 변경하거나, 폰트 파일을 준비해야 합니다.
     FONT = ImageFont.truetype('SCDream6.otf', 20)
 except IOError:
     print("[경고] 폰트 'SCDream6.otf'를 찾을 수 없습니다. 기본 폰트로 대체됩니다.")
@@ -57,18 +63,32 @@ def make_the_thumbnail(thumbnail_name, frame):
     cv2.imwrite(thumbnail_path, frame)
     print(f"[정보] 썸네일({thumbnail_filename})을 저장했습니다.")
 
-def is_screen_blocked(frame, uniformity_threshold=0.9, color_diff_threshold=15):
-    """화면이 가려졌는지 RGB 기준으로 판단 (균일도 측정 방식)"""
+def is_screen_blocked(frame, min_histogram_std_dev=8.0, min_brightness=30):
+    """
+    화면이 가려졌는지 히스토그램의 표준 편차(분산)와 평균 밝기를 기준으로 판단합니다.
+    - min_histogram_std_dev=8.0: 손으로 가렸을 때 감지 성공률을 높이기 위해 기본값보다 낮춤.
+    - min_brightness=30: 평균 밝기가 30보다 낮아야 어둡다고 판단.
+    """
+    # 프레임 유효성 검사
     if frame is None or frame.size == 0:
         return False
         
-    mean_color = np.mean(frame, axis=(0, 1))
-    diff = np.sqrt(np.sum((frame - mean_color) ** 2, axis=2))
-    similar_pixels = np.sum(diff < color_diff_threshold)
-    total_pixels = frame.shape[0] * frame.shape[1]
-    uniform_ratio = similar_pixels / total_pixels
+    # 1. 흑백 이미지로 변환하여 밝기 히스토그램 계산
+    gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # 2. 히스토그램 계산
+    hist = cv2.calcHist([gray_frame], [0], None, [256], [0, 256])
+    
+    # 3. 히스토그램의 표준 편차 (Standard Deviation) 계산
+    hist_std_dev = np.std(hist)
 
-    if uniform_ratio > uniformity_threshold:
+    # 4. 화면의 평균 밝기 계산
+    average_brightness = np.mean(gray_frame)
+
+    # 두 가지 조건 모두 만족할 때 가려짐으로 판단:
+    # 1. 히스토그램 표준 편차가 너무 작아서 화면이 단조로울 때 (가려짐 의심) AND
+    # 2. 평균 밝기가 너무 어두울 때 (가려짐 의심)
+    if hist_std_dev < min_histogram_std_dev and average_brightness < min_brightness:
         return True
     else:
         return False
@@ -97,10 +117,10 @@ def stop_recording_and_save():
 
         if video_filename and os.path.exists(video_filename):
             
-            # 💡 수정: 파일 이동 대상 폴더 설정
+            # 파일 이동 대상 폴더 설정
             target_folder = DANGER_FOLDER if blocked else SAVE_VIDEO_FOLDER
             
-            # 💡 수정: 파일명 충돌 방지 로직
+            # 파일명 충돌 방지 로직 (파일명에 번호 추가)
             base_name = os.path.basename(video_filename)
             name, ext = os.path.splitext(base_name)
             destination_path = os.path.join(target_folder, base_name)
@@ -144,12 +164,14 @@ while True:
     try:
         frame2_array = PICAM2.capture_array()
         
+        # Nonetype 오류 방지 1
         if frame2_array is None:
             time.sleep(0.1)
             continue
             
         frame2 = cv2.cvtColor(frame2_array, cv2.COLOR_RGB2BGR)
         
+        # Nonetype 오류 방지 2
         if frame2 is None or frame2.size == 0:
             time.sleep(0.1)
             continue
@@ -157,7 +179,7 @@ while True:
         # --- 5-1. 화면 가려짐 감지 로직 (실시간 업데이트) ---
         newly_blocked = is_screen_blocked(frame2)
         
-        # 가려짐 해제 시 모션 감지 기준 프레임 리셋
+        # 가려짐 해제 시 모션 감지 기준 프레임 리셋 (잔상 제거 목적)
         if blocked == True and newly_blocked == False:
             frame1_gray = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY) 
             frame1_gray = cv2.GaussianBlur(frame1_gray, (21, 21), 0)
@@ -174,6 +196,7 @@ while True:
         
         motion_detected = False
         
+        # 화면이 가려지지 않았을 때만 모션 감지 수행
         if not blocked:
             frame_diff = cv2.absdiff(frame1_gray, frame2_gray)
             thresh = cv2.threshold(frame_diff, 25, 255, cv2.THRESH_BINARY)[1]
@@ -221,11 +244,14 @@ while True:
         PICAM2.stop()
         cv2.destroyAllWindows()
         sys.exit(0)
+        
     except Exception as e:
+        # 💡 SyntaxError 해결: global 선언을 블록 최상단으로 이동
+        global IS_RECORD, video_writer, video_filename 
+        
         print(f"[ERROR] An unexpected error occurred: {e}")
         
-        # 💡 수정: 오류 발생 시 녹화 상태를 강제 초기화하여 'write' 오류 방지
-        global IS_RECORD, video_writer, video_filename
+        # 오류 발생 시 녹화 상태를 강제 초기화하여 'write' 오류 방지
         if IS_RECORD:
             print("[ERROR RECOVERY] 오류 발생으로 녹화 상태를 강제 종료합니다.")
             if video_writer:
