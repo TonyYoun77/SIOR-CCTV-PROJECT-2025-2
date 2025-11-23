@@ -94,7 +94,7 @@ def check_mq2_sensor():
 
 def check_light_sensor():
     #조도 센서의 디지털 출력을 확인하여 야간 모드 진입 필요 여부를 반환합니다.
-    return LIGHT_SENSOR.is_active 
+    return not LIGHT_SENSOR.is_active 
 
 def control_ir_cut(is_dark):
     global IS_NIGHT_MODE
@@ -121,26 +121,27 @@ def is_screen_blocked(frame, min_histogram_std_dev=8.0, min_brightness=30):
     hist_std_dev = np.std(hist)
     average_brightness = np.mean(gray_frame)
 
-    if hist_std_dev < min_histogram_std_dev and average_brightness < min_brightness:
+    #흑백 프레임에서의 표준편차가 임계 표준편차보다 낮거나 평균 밝기값이 임계값보다 작을 경우
+    if hist_std_dev < min_histogram_std_dev or average_brightness < min_brightness:
         return True
     else:
         return False
     
 def start_recording(frame_shape):
-    """녹화 파일명을 생성하고 VideoWriter를 초기화합니다."""
+    #녹화 파일명을 생성하고 VideoWriter를 초기화합니다.
     global video_writer, video_filename, IS_RECORD, RECORD_START_TIME
-    
+
     filename = generate_filename()
     video_filename = os.path.join(TMP_VIDEO_FOLDER, filename)
     
-    video_writer = cv2.VideoWriter(video_filename, FOURCC, 20, (frame_shape[1], frame_shape[0]))
+    video_writer = cv2.VideoWriter(video_filename, FOURCC, 30, (frame_shape[1], frame_shape[0]))
     
     IS_RECORD = True
     RECORD_START_TIME = time.time()
     print(f"[REC] recording start: {filename}")
 
 def stop_recording_and_save():
-    """VideoWriter를 종료하고 녹화 파일을 지정된 폴더로 이동합니다."""
+    #VideoWriter를 종료하고 녹화 파일을 지정된 폴더로 이동합니다.
     global video_writer, IS_RECORD, blocked, video_filename, GAS_DETECTED
 
     if video_writer:
@@ -212,9 +213,9 @@ while True:
             time.sleep(0.1)
             continue
 
-        # --- 6-1. 센서 통합 로직 (가려짐, 가스, 조도) ---
+        # ---  센서 통합 로직 (가려짐, 가스, 조도) ---
         
-        # A. 화면 가려짐 감지
+        # A. 화면 가려짐 감지 -> 가려짐이 계속 되면 가려짐이 해제될 때까지 더 이상 녹화를 진행하지 않음.
         newly_blocked = is_screen_blocked(frame2)
         if blocked == True and newly_blocked == False:
             frame1_gray = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY) 
@@ -224,7 +225,7 @@ while True:
             print(f"[BLOCKED] 상태 변경: {'감지됨' if newly_blocked else '해제됨'}")
         blocked = newly_blocked
         
-        # B. 가스 감지
+        # B. 가스 감지 -> 가스가 감지 되면 썸네일 파일을 만들어서 썸네일 파일로 전송
         newly_gas_detected = check_mq2_sensor()
         if newly_gas_detected != GAS_DETECTED:
             if newly_gas_detected:
@@ -237,7 +238,7 @@ while True:
         is_dark = check_light_sensor()
         control_ir_cut(is_dark)
 
-        # --- 6-2. 모션 감지 로직 ---
+        # ---  모션 감지 로직 ---
         frame2_gray = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY)
         frame2_gray = cv2.GaussianBlur(frame2_gray, (21, 21), 0)
         motion_detected = False
@@ -254,13 +255,13 @@ while True:
 
         status_text = f"CCTV {nowDatetime}"
         if GAS_DETECTED:
-            status_text += " | 🔥GAS DANGER!"
+            status_text += " | GAS DANGER!"
         if blocked:
-            status_text += " | ❌BLOCKED!"
+            status_text += " | BLOCKED!"
         if IS_NIGHT_MODE:
-             status_text += " | 🌙NIGHT MODE"
+             status_text += " | NIGHT MODE"
 
-        cv2.rectangle(frame2, (10, 15), (700, 35), (0, 0, 0), -1)
+        cv2.rectangle(frame2, (10, 15), (750, 35), (0, 0, 0), -1)
         
         frame_pil = Image.fromarray(frame2)
         draw = ImageDraw.Draw(frame_pil)
