@@ -211,15 +211,14 @@ if __name__ == "__main__":
     print('대기 중...')
 
     observer = Observer()
-    
+
+    thumbnail_handler = ThumbnailHandler()
+    observer.schedule(thumbnail_handler, thumbnail, recursive=False)
 
     video_handler = VideoHandler()
     observer.schedule(video_handler, danger, recursive=False)
     observer.schedule(video_handler, normal, recursive=False)
 
-    thumbnail_handler = ThumbnailHandler()
-    observer.schedule(thumbnail_handler, thumbnail, recursive=False)
-    
     observer.start()
 
     try:
