@@ -28,18 +28,18 @@ os.makedirs(THUMBNAIL_FOLDER, exist_ok=True)
 # --- 2. GPIO 핀 정의 및 초기화 ---
 
 MQ2_PIN = 23          # MQ-2 가스 센서 디지털 출력 핀
-LIGHT_SENSOR_PIN = 27 # 조도 센서 디지털 출력 핀
-IR_CUT_PIN = 24       # IR-Cut 필터 제어 출력 핀
+LIGHT_SENSOR_PIN = 24  # 조도 센서 디지털 출력 핀
+IR_CUT_PIN = 17       # IR-Cut 필터 제어 출력 핀
 
 try:
     # MQ-2: HIGH가 감지(True), LOW가 비감지(False)
-    MQ2_SENSOR = DigitalInputDevice(MQ2_PIN, pull_up=False) 
+    MQ2_SENSOR = DigitalInputDevice(MQ2_PIN, pull_up=True) 
     
     # 조도: HIGH가 밝음(True), LOW가 어두움(False)
-    LIGHT_SENSOR = DigitalInputDevice(LIGHT_SENSOR_PIN, pull_up=False) 
+    LIGHT_SENSOR = DigitalInputDevice(LIGHT_SENSOR_PIN, pull_up=True) 
     
     # IR-Cut: HIGH가 ON(주간), LOW가 OFF(야간)
-    IR_CUT_CONTROL = DigitalOutputDevice(IR_CUT_PIN, initial_value=True) # 초기값 True: 주간 모드 ON
+    IR_CUT_CONTROL = DigitalOutputDevice(IR_CUT_PIN, initial_value=True) # 초기값 False: 주간 모드 OFF
     
 except Exception as e:
     print(f"[FATAL ERROR] GPIO Zero 초기화 실패: {e}")
@@ -56,6 +56,7 @@ MOTION_THRESHOLD = 2000
 video_writer = None
 video_filename = None
 blocked = False 
+blocked_count = 0
 GAS_DETECTED = False    
 IS_NIGHT_MODE = False   # 초기값 False (주간 모드)
 
@@ -82,21 +83,23 @@ def generate_filename():
     return now.strftime("CCTV_%Y-%m-%d_%H-%M-%S.avi")
 
 def make_the_thumbnail(thumbnail_name, frame):
-    #지정된 이름으로 썸네일을 저장합니다.
+    """지정된 이름으로 썸네일을 저장합니다."""
     thumbnail_filename = f'{thumbnail_name}.jpg'
     thumbnail_path = os.path.join(THUMBNAIL_FOLDER, thumbnail_filename)
     cv2.imwrite(thumbnail_path, frame)
     print(f"[정보] 썸네일({thumbnail_filename})을 저장했습니다.")
 
 def check_mq2_sensor():
-    #MQ-2 센서의 디지털 출력을 확인하여 가스 감지 여부를 반환합니다.
+    """MQ-2 센서의 디지털 출력을 확인하여 가스 감지 여부를 반환합니다."""
     return MQ2_SENSOR.is_active
 
 def check_light_sensor():
-    #조도 센서의 디지털 출력을 확인하여 야간 모드 진입 필요 여부를 반환합니다.
+    """조도 센서의 디지털 출력을 확인하여 야간 모드 진입 필요 여부를 반환합니다."""
+    # HIGH가 밝음을 의미하므로, 반전하여 어두울 때 True를 반환합니다.
     return not LIGHT_SENSOR.is_active 
 
 def control_ir_cut(is_dark):
+    """조도 센서 값에 따라 IR-Cut 필터를 제어합니다."""
     global IS_NIGHT_MODE
     
     # 야간 모드 진입 (어두운데 주간 모드인 경우)
@@ -110,30 +113,36 @@ def control_ir_cut(is_dark):
         IS_NIGHT_MODE = False
         print("[IR-CUT] 주간 모드 진입 (IR-Cut ON)")
 
-def is_screen_blocked(frame, min_histogram_std_dev=8.0, min_brightness=30):
-    
-    #화면이 가려졌는지 프레임을 흑백으로 변환 후 히스토그램의 표준 편차와 평균 밝기를 기준으로 판단합니다.
+def is_screen_blocked(frame, min_histogram_std_dev=12.0, min_brightness=30):
+    """
+    화면이 가려졌는지 히스토그램의 표준 편차 또는 평균 밝기를 기준으로 판단합니다.
+    (손 또는 단색 물체로 가려짐 감지를 위해 임계값을 12.0으로 조정)
+    """
     if frame is None or frame.size == 0:
         return False
         
     gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # 히스토그램 계산은 단조로운 화면(가려짐)을 판단하는 데 유용합니다.
     hist = cv2.calcHist([gray_frame], [0], None, [256], [0, 256])
     hist_std_dev = np.std(hist)
+    # 평균 밝기는 완전히 어두운 화면(가려짐)을 판단하는 데 유용합니다.
     average_brightness = np.mean(gray_frame)
 
-    #흑백 프레임에서의 표준편차가 임계 표준편차보다 낮거나 평균 밝기값이 임계값보다 작을 경우
+    # 흑백 프레임에서의 표준편차가 임계 표준편차(12.0)보다 낮거나 
+    # 평균 밝기값(30)이 임계값보다 작을 경우 True 반환
     if hist_std_dev < min_histogram_std_dev or average_brightness < min_brightness:
         return True
     else:
         return False
     
 def start_recording(frame_shape):
-    #녹화 파일명을 생성하고 VideoWriter를 초기화합니다.
+    """녹화 파일명을 생성하고 VideoWriter를 초기화합니다."""
     global video_writer, video_filename, IS_RECORD, RECORD_START_TIME
 
     filename = generate_filename()
     video_filename = os.path.join(TMP_VIDEO_FOLDER, filename)
     
+    # 프레임 속도(FPS)를 30으로 설정
     video_writer = cv2.VideoWriter(video_filename, FOURCC, 30, (frame_shape[1], frame_shape[0]))
     
     IS_RECORD = True
@@ -141,7 +150,7 @@ def start_recording(frame_shape):
     print(f"[REC] recording start: {filename}")
 
 def stop_recording_and_save():
-    #VideoWriter를 종료하고 녹화 파일을 지정된 폴더로 이동합니다.
+    """VideoWriter를 종료하고 녹화 파일을 지정된 폴더로 이동합니다."""
     global video_writer, IS_RECORD, blocked, video_filename, GAS_DETECTED
 
     if video_writer:
@@ -187,6 +196,7 @@ if frame1 is None:
     PICAM2.stop()
     sys.exit(1)
 
+# 초기 화면 가려짐 검사
 if is_screen_blocked(frame1):
     blocked = True
     initial_thumbnail_name = 'INITIAL_BLOCKED_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -213,7 +223,7 @@ while True:
             time.sleep(0.1)
             continue
 
-        # ---  센서 통합 로직 (가려짐, 가스, 조도) ---
+        # --- 6-1. 센서 통합 로직 (가려짐, 가스, 조도) ---
         
         # A. 화면 가려짐 감지
         newly_blocked = is_screen_blocked(frame2)
@@ -222,10 +232,10 @@ while True:
         if newly_blocked != blocked:
             print(f"[BLOCKED] 상태 변경: {'감지됨' if newly_blocked else '해제됨'}")
             
+            # 가려짐이 새로 감지되었을 때 썸네일 생성
             if newly_blocked:
                 thumbnail_name = 'BLOCKED_DETECTED_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 make_the_thumbnail(thumbnail_name, frame2)
-            # ----------------------------------------------------
             
             # 가려짐 해제 시 모션 감지 기준 프레임 리셋
             if blocked == True and newly_blocked == False:
@@ -235,7 +245,7 @@ while True:
                 
         blocked = newly_blocked
         
-        # B. 가스 감지 -> 가스가 감지 되면 썸네일 파일을 만들어서 썸네일 파일로 전송
+        # B. 가스 감지
         newly_gas_detected = check_mq2_sensor()
         if newly_gas_detected != GAS_DETECTED:
             if newly_gas_detected:
@@ -248,7 +258,7 @@ while True:
         is_dark = check_light_sensor()
         control_ir_cut(is_dark)
 
-        # ---  모션 감지 로직 ---
+        # --- 6-2. 모션 감지 로직 ---
         frame2_gray = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY)
         frame2_gray = cv2.GaussianBlur(frame2_gray, (21, 21), 0)
         motion_detected = False
@@ -256,6 +266,7 @@ while True:
         if not blocked:
             frame_diff = cv2.absdiff(frame1_gray, frame2_gray)
             thresh = cv2.threshold(frame_diff, 25, 255, cv2.THRESH_BINARY)[1]
+            # 모션 레벨 계산: 움직인 픽셀 수의 합
             motion_level = np.sum(thresh) / 255
             motion_detected = motion_level > MOTION_THRESHOLD
 
@@ -270,11 +281,15 @@ while True:
             status_text += " | BLOCKED!"
         if IS_NIGHT_MODE:
              status_text += " | NIGHT MODE"
+        else:
+             status_text += " | DAY MODE"
 
+        # 화면 좌측 상단에 상태 표시줄 렌더링
         cv2.rectangle(frame2, (10, 15), (750, 35), (0, 0, 0), -1)
         
         frame_pil = Image.fromarray(frame2)
         draw = ImageDraw.Draw(frame_pil)
+        # 흰색 폰트로 상태 텍스트 출력
         draw.text((10, 15), status_text, font=FONT, fill=(255, 255, 255))
         frame2 = np.array(frame_pil)
 
@@ -287,9 +302,10 @@ while True:
         if IS_RECORD:
             if video_writer is not None:
                 video_writer.write(frame2)
+            # 녹화 중임을 나타내는 빨간 점 표시 (우측 상단)
             cv2.circle(frame2, (1260, 15), 5, (0, 0, 255), -1) 
 
-            # 녹화 지속 시간 초과, 화면 가려짐, 또는 가스 감지 발생 시 녹화 종료 및 저장
+            # 녹화 종료 조건: 시간 초과(15초), 화면 가려짐, 또는 가스 감지
             if time.time() - RECORD_START_TIME > RECORD_DURATION or blocked or GAS_DETECTED:
                 stop_recording_and_save() 
 
@@ -297,4 +313,32 @@ while True:
         cv2.imshow("output", frame2)
         frame1_gray = frame2_gray.copy() 
 
-        key = cv2.waitKey
+        # 키 입력 대기 (1ms) 및 'q' 또는 ESC 키 감지
+        key = cv2.waitKey(1) & 0xFF 
+        
+        if key == ord('q') or key == 27: # 'q' 또는 ESC 키가 눌리면 인터럽트 발생
+            raise KeyboardInterrupt
+
+    except KeyboardInterrupt:
+        # 'q' 또는 ESC 키로 인한 정상 종료 처리
+        print("\nSystem stopped because of keyboardinterrupt.")
+        if IS_RECORD:
+            stop_recording_and_save() 
+        PICAM2.stop()
+        cv2.destroyAllWindows()
+        sys.exit(0)
+        
+    except Exception as e:
+        # 예상치 못한 시스템 오류 처리
+
+        print(f"[ERROR] An unexpected error occurred: {e}")
+        
+        # 에러 발생 시 녹화 상태 복구 로직 (비디오 파일이 손상되지 않도록 처리)
+        if IS_RECORD:
+            print("[ERROR RECOVERY] 오류 발생으로 녹화 상태를 강제 종료합니다.")
+            if video_writer:
+                video_writer.release()
+            video_writer = None
+            IS_RECORD = False
+            
+        time.sleep(1) # 오류 발생 후 잠시 대기하여 CPU 부하 감소
